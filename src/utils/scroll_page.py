@@ -4,13 +4,12 @@ logger = get_logger(__name__)
 
 
 async def scroll_to_element(page, selector):
-    """Function for scrolling the page"""
+    """Функція для скронингу сторінки"""
     element = None
     for _ in range(20):
         try:
             element = await page.wait_for_selector(selector, timeout=1000)
             if element:
-                # logger.info(f"Element {selector} found with scroll page.", extra={'custom_color': True})
                 break
         except Exception as e:
             pass
