@@ -421,7 +421,7 @@ class PlaywrightAsyncRunner:
             logger.error(f"Error during operation: {e}")
 
 
-async def playwright_async_run_main(email, password, link):
+async def playwright_async_run(email, password, link):
     runner = PlaywrightAsyncRunner(email, password, link)
     async with async_playwright() as playwright, get_db_context() as db:
 

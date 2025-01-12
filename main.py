@@ -6,7 +6,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from dotenv import dotenv_values
 
-from src.services.playwright_service import playwright_async_run_main
+from src.services.playwright_service import playwright_async_run
 from src.utils.dump_db import create_db_dump
 from src.utils.py_logger import get_logger
 
@@ -22,12 +22,12 @@ async def main():
     scheduler = AsyncIOScheduler()
 
     # Запуск після старту
-    scheduler.add_job(playwright_async_run_main,
+    scheduler.add_job(playwright_async_run,
                       trigger='date',
                       run_date=datetime.now() + timedelta(seconds=5),
                       args=[EMAIL_OLX, PASSWORD_OLX, MAIN_LINK])
     # повторюватися кожен день через 1 день
-    scheduler.add_job(playwright_async_run_main,
+    scheduler.add_job(playwright_async_run,
                       trigger=IntervalTrigger(days=1, timezone="Europe/Kiev"),
                       args=[EMAIL_OLX, PASSWORD_OLX, MAIN_LINK])
 
