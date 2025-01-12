@@ -433,7 +433,7 @@ async def playwright_async_run_main(email, password, link):
 
         # 2. Ітерація для кожного продукту
         if product_links:
-            for product_link in list(product_links)[:4]:
+            for product_link in list(product_links):
                 runner.link = link + product_link
                 link_prod = {"link": runner.link}
                 runner.data['product'] = {**runner.data.get('product', {}), **link_prod}

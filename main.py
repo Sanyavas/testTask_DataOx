@@ -37,7 +37,7 @@ async def main():
     logger.info("Scheduler started")
 
     try:
-        await asyncio.Event().wait()  # Запускає програму на невизначений час
+        await asyncio.Event().wait()
     except (KeyboardInterrupt, SystemExit):
         logger.info("Shutting down scheduler")
         scheduler.shutdown()
