@@ -16,8 +16,12 @@
       ```bash
       playwright install
       ```
+4. Застосуйте міграції:
+     ```bash
+     alembic upgrade head
+     ```
 
-4. Запустіть сервер:
+5. Запустіть сервер:
       ```bash
       py main.py
       ```
