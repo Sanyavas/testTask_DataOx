@@ -21,11 +21,12 @@ PASSWORD_OLX = config.get("PASSWORD_OLX")
 async def main():
     scheduler = AsyncIOScheduler()
 
+    # Запуск після старту
     scheduler.add_job(playwright_async_run_main,
                       trigger='date',
                       run_date=datetime.now() + timedelta(seconds=5),
                       args=[EMAIL_OLX, PASSWORD_OLX, MAIN_LINK])
-
+    # повторюватися кожен день через 1 день
     scheduler.add_job(playwright_async_run_main,
                       trigger=IntervalTrigger(days=1, timezone="Europe/Kiev"),
                       args=[EMAIL_OLX, PASSWORD_OLX, MAIN_LINK])
