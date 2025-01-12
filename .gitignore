@@ -171,3 +171,8 @@ cython_debug/
 .pypirc
 
 .idea/
+/src/for_test/
+/main_test.py
+/text.txt
+/logs/
+/src/utils/logs/
