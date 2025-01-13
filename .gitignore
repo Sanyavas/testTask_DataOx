@@ -176,3 +176,4 @@ cython_debug/
 /text.txt
 /logs/
 /src/utils/logs/
+/simple.py

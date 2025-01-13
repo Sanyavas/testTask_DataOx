@@ -184,22 +184,19 @@ class PlaywrightAsyncRunner:
 
     async def get_images(self) -> dict | None:
         """
-        Витягує всі зображення
+        Витягує всі зображення зі сторінки.
         """
         try:
             image_elements = await self.page.query_selector_all('div.swiper-wrapper div.swiper-zoom-container img')
-            image_urls = []
+            image_urls = [
+                src for src in await asyncio.gather(*(img.get_attribute('src') for img in image_elements)) if src
+            ]
 
-            for img in image_elements:
-                src = await img.get_attribute('src')
-                if src:
-                    image_urls.append(src)
-            image_urls = ", ".join(image_urls)
+            image_data = {"images": ", ".join(image_urls)}
 
-            image = {"images": image_urls}
-            self.data['product'] = {**self.data.get('product', {}), **image}
+            self.data['product'] = {**self.data.get('product', {}), **image_data}
 
-            return image
+            return image_data
 
         except Exception as e:
             logger.error(f"Помилка при скрапінгу картинок: {e}")
@@ -242,67 +239,62 @@ class PlaywrightAsyncRunner:
         Пошук телефону
         """
         try:
-            # await self.page.wait_for_selector('button.css-72jcbl', timeout=3000)
             button_phone_selector = await self.page.query_selector('button.css-72jcbl')
-
-            if button_phone_selector:
-                await button_phone_selector.click()
-
-                try:
-                    phone_selector = await self.page.wait_for_selector('a.css-1dvqodz', timeout=3000)
-                    if phone_selector:
-                        phone_number = await phone_selector.text_content()
-                        phone_number = phone_number.strip() if phone_number else None
-                        phone = {"phone_number": phone_number}
-                        self.data['seller'] = {**self.data.get('seller', {}), **phone}
-                        return phone
-
-                    else:
-                        phone = {"phone_number": None}
-                        self.data['seller'] = {**self.data.get('seller', {}), **phone}
-                        return phone
-
-                except Exception as inner_e:
-                    logger.error(f"Помилка при очікуванні телефону: {inner_e}")
-                    phone = {"phone_number": None}
-                    self.data['seller'] = {**self.data.get('seller', {}), **phone}
-                    return phone
-            else:
+            if not button_phone_selector:
                 logger.warning("Не знайдена кнопка для показу телефону.")
+                return None
+
+            await button_phone_selector.click()
+
+            phone_selector = await self.page.wait_for_selector('a.css-1dvqodz', timeout=3000)
+            phone_number = None
+
+            if phone_selector:
+                phone_number = (await phone_selector.text_content()).strip()
+
+            phone = {"phone_number": phone_number}
+            self.data['seller'] = {**self.data.get('seller', {}), **phone}
+
+            return phone
 
         except Exception as e:
             logger.error(f"Помилка при скрапінгу телефону: {e}")
+            return None
 
-    async def scrape_links(self) -> set | None:
+    async def scrape_links(self, pages: int = 5) -> set | None:
         """
-        Забирає посилання на товари, 5 перших сторінок.
+        Забирає посилання на товари з вказаної кількості сторінок.
         """
         try:
             links = set()
             start_time = time.time()
-            for page_number in range(1, 2):
-                url = self.link + f"/uk/list/?page={page_number}"
+
+            for page_number in range(1, pages + 1):
+                url = f"{self.link}/uk/list/?page={page_number}"
                 logger.info(f"Завантажую сторінку: {url}")
 
                 await self.page.goto(url)
-                await self.page.wait_for_selector(
-                    "#mainContent > div > div.css-1nvt13t > form > div:nth-child(5) > div > div.css-j0t2x2"
-                )
+                try:
+                    await self.page.wait_for_selector(
+                        "#mainContent > div > div.css-1nvt13t > form > div:nth-child(5) > div > div.css-j0t2x2",
+                        timeout=3000
+                    )
+                except TimeoutError:
+                    logger.warning(f"Елементи не знайдено на сторінці: {url}. Пропускаємо.")
+                    continue
+
                 cards = await self.page.query_selector_all('div[data-cy="l-card"] a.css-qo0cxu')
+                hrefs = await asyncio.gather(*(card.get_attribute("href") for card in cards))
 
-                print(f'{cards=}')
+                links.update(filter(None, hrefs))
 
-                for card in cards:
-                    href = await card.get_attribute("href")
-                    if href:
-                        links.add(href)
             logger.info(f"Загальна кількість унікальних посилань: {len(links)}")
             logger.info(f"scrape_links завершено. Загальний час: {time.time() - start_time:.2f} сек.")
 
             return links
 
         except Exception as e:
-            logger.error(f"Помилка при скрапінгу посилань {e}")
+            logger.error(f"Помилка під час скрапінгу посилань: {e}")
             return None
 
     async def main_get_pages(self, playwright: Playwright):
@@ -326,6 +318,8 @@ class PlaywrightAsyncRunner:
         """
         Основний метод, який запускає всі етапи процесу.
         """
+        start_time = time.time()
+
         try:
             await self._setup_browser(playwright)
             await asyncio.sleep(random.randint(2, 3))
@@ -341,7 +335,7 @@ class PlaywrightAsyncRunner:
             await asyncio.sleep(random.randint(2, 3))
             await self.get_phone()
 
-            await asyncio.sleep(5)
+            logger.info(f"main_run завершено: {time.time() - start_time:.2f} сек.")
 
         except Exception as e:
             logger.error(f"Error during operation: {e}")
