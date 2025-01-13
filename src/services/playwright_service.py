@@ -65,7 +65,7 @@ class PlaywrightAsyncRunner:
         Логування User-Agent браузера.
         """
         user_agent = await self.page.evaluate("navigator.userAgent")
-        logger.info(f"User-Agent: {user_agent}", extra={'custom_color': True})
+        logger.info(f"User-Agent: {user_agent}")
 
     async def _accept_cookies(self):
         """
@@ -74,7 +74,6 @@ class PlaywrightAsyncRunner:
         try:
             await self.page.wait_for_selector('div.css-e661z2 > button[data-cy="dismiss-cookies-overlay"]')
             await self.page.click('div.css-e661z2 > button[data-cy="dismiss-cookies-overlay"]')
-            logger.info(f"Clicked 'Закрити' on the cookie consent.", extra={'custom_color': True})
         except Exception as e:
             logger.warning(f"Failed to click 'Закрити': {e}")
 
@@ -105,7 +104,7 @@ class PlaywrightAsyncRunner:
                 await self.page.goto(self.link)
 
                 if self.page.url == self.link:
-                    logger.info(f"Успішно перейшли на сторінку: {self.link}", extra={'custom_color': True})
+                    logger.info(f"Успішно перейшли на сторінку: {self.link}")
                 else:
                     logger.warning(f"Перехід на сторінку {self.link} завершився невдачею.",
                                    extra={'custom_color': True})
@@ -271,9 +270,8 @@ class PlaywrightAsyncRunner:
 
             for page_number in range(1, pages + 1):
                 url = f"{self.link}/uk/list/?page={page_number}"
-                logger.info(f"Завантажую сторінку: {url}")
-
                 await self.page.goto(url)
+
                 try:
                     await self.page.wait_for_selector(
                         "#mainContent > div > div.css-1nvt13t > form > div:nth-child(5) > div > div.css-j0t2x2",
@@ -289,7 +287,7 @@ class PlaywrightAsyncRunner:
                 links.update(filter(None, hrefs))
 
             logger.info(f"Загальна кількість унікальних посилань: {len(links)}")
-            logger.info(f"scrape_links завершено. Загальний час: {time.time() - start_time:.2f} сек.")
+            logger.info(f"scrape_links завершено час: {time.time() - start_time:.2f} сек.")
 
             return links
 
@@ -322,17 +320,16 @@ class PlaywrightAsyncRunner:
 
         try:
             await self._setup_browser(playwright)
-            await asyncio.sleep(random.randint(2, 3))
             await self._log_user_agent()
             await self._accept_cookies()
-            await asyncio.sleep(random.randint(2, 3))
-            await self._login()
+            # await self._login()
+            logger.info(f"Працює без логінізації на сайті!", extra={'custom_color': True})
             await self.get_seller()
-            await asyncio.sleep(random.randint(2, 3))
+            # await asyncio.sleep(random.randint(2, 3))
             await self.get_product()
             await self.get_images()
             await self.get_info()
-            await asyncio.sleep(random.randint(2, 3))
+            # await asyncio.sleep(random.randint(2, 3))
             await self.get_phone()
 
             logger.info(f"main_run завершено: {time.time() - start_time:.2f} сек.")
@@ -341,49 +338,50 @@ class PlaywrightAsyncRunner:
             logger.error(f"Error during operation: {e}")
 
 
-async def fetch_product_data(email, password, product_link, link, db, semaphore, playwright):
+async def fetch_product_data(email, password, product_link, link, db, semaphore, playwright, success_count):
     async with semaphore:
-        runner = None  # Ініціалізація змінної для гарантії закриття браузера
+        runner = None
 
         try:
-            # Створюємо новий екземпляр PlaywrightAsyncRunner
             runner = PlaywrightAsyncRunner(email, password, link + product_link)
             link_prod = {"link": runner.link}
             runner.data['product'] = {**runner.data.get('product', {}), **link_prod}
 
-            # Зібрати всі дані для продукту (передаємо `playwright`)
             await runner.main_run(playwright)
 
-            # Логування результатів
-            print("********************************************************")
-            print(runner.link)
             pprint(runner.data)
-            print("********************************************************")
-
-            # Збереження даних у базу даних
             await save_data_to_db(runner.data, db)
 
+            success_count[0] += 1
+
         except Exception as e:
-            # Логування виключень
             logger.error(f"Помилка під час обробки продукту {product_link}: {e}", exc_info=True)
         finally:
             await runner.browser.close()
-            # await runner._close_browser()
 
 
 async def playwright_async_run(email, password, link):
     async with async_playwright() as playwright, get_db_context() as db:
+
+        start_time = time.time()
+
         # 1. Для збору посилань на продукти
         runner = PlaywrightAsyncRunner(email, password, link)
         product_links = await runner.main_get_pages(playwright)
 
         # 2. Паралельна обробка з обмеженням кількості одночасних запитів
         if product_links:
-            semaphore = asyncio.Semaphore(1)  # Наприклад, максимум 5 одночасних запитів
+            semaphore = asyncio.Semaphore(3)
+            success_count = [0]
             tasks = [
-                fetch_product_data(email, password, product_link, link, db, semaphore, playwright)
-                for product_link in list(product_links)[:4]
+                fetch_product_data(email, password, product_link, link, db, semaphore, playwright, success_count)
+                for product_link in list(product_links)
             ]
 
-            # Виконання всіх задач паралельно
             await asyncio.gather(*tasks)
+
+            print("*" * 90)
+            logger.info(f"Всього товарів: {len(product_links)}.", extra={'custom_color': True})
+            logger.info(f"Записано товарів у базу даних:  {success_count[0]}", extra={'custom_color': True})
+            logger.info(f"Загальний час: {time.time() - start_time:.2f} сек.", extra={'custom_color': True})
+            print("*" * 90)

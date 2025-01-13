@@ -1,5 +1,4 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 
 from src.db.models import Seller, Product
 from src.utils.py_logger import get_logger
