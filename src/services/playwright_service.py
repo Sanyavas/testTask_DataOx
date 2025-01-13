@@ -1,6 +1,7 @@
 import asyncio
 import random
 import re
+import time
 from pprint import pprint
 
 from playwright.async_api import async_playwright, Playwright
@@ -106,178 +107,73 @@ class PlaywrightAsyncRunner:
                 if self.page.url == self.link:
                     logger.info(f"Успішно перейшли на сторінку: {self.link}", extra={'custom_color': True})
                 else:
-                    logger.warning(f"Перехід на сторінку {self.link} завершився невдачею.", extra={'custom_color': True})
+                    logger.warning(f"Перехід на сторінку {self.link} завершився невдачею.",
+                                   extra={'custom_color': True})
 
         except Exception as e:
             logger.error(f"{self.email} | Login failed: {e}")
             raise
 
-    async def scrape_links(self) -> set | None:
+    async def _extract_text(self, selector: str, scroll: bool = False, is_digit: bool = False) -> str | None:
         """
-        Забирає посилання на товари, 5 перших сторінок.
+        Витягує текст з елемента за вказаним селектором
         """
         try:
-            links = set()
-            for page_number in range(1, 6):
-                url = self.link + f"/uk/list/?page={page_number}"
-                logger.info(f"Завантажую сторінку: {url}")
+            if scroll:
+                element = await scroll_to_element(self.page, selector)
+            else:
+                element = await self.page.query_selector(selector)
 
-                await self.page.goto(url)
-                await self.page.wait_for_selector(
-                    "#mainContent > div > div.css-1nvt13t > form > div:nth-child(5) > div > div.css-j0t2x2"
-                )
-                cards = await self.page.query_selector_all('div[data-cy="l-card"] a.css-qo0cxu')
+            if not element:
+                return None
 
-                for card in cards:
-                    href = await card.get_attribute("href")
-                    if href:
-                        links.add(href)
-            logger.info(f"Загальна кількість унікальних посилань: {len(links)}")
+            text = (await element.text_content()).strip()
 
-            return links
-
+            if is_digit:
+                match = re.search(r'\d+', text)
+                return match.group() if match else None
+            return text
         except Exception as e:
-            logger.error(f"Помилка при скрапінгу посилань {e}")
+            logger.error(f"Error extracting text from selector '{selector}': {e}")
             return None
 
     async def get_seller(self) -> dict | None:
+        """
+        Витягує ім'я, рейтинг, дата реєстр, остання дата, адресу та регіон
+        """
         try:
-            # Витягуємо ім'я продавця
-            name_selector = await self.page.query_selector('h4[class="css-1lcz6o7"]')
-            if name_selector:
-                name = await name_selector.text_content()
-                name = name.strip() if name else None
-            else:
-                name = None
-
-            # Витягуємо рейтинг
-            rating_selector = await self.page.query_selector('p[class="css-9pgvpt"]')
-            if rating_selector:
-                rating = await rating_selector.text_content()
-                rating = rating.strip() if rating else None
-            else:
-                rating = None
-
-            # Витягуємо дату реєстрації продавця
-            registered_date_selector = await self.page.query_selector('p[class="css-23d1vy"]')
-            if registered_date_selector:
-                registered_date = await registered_date_selector.text_content()
-                registered_date = registered_date.strip() if registered_date else None
-            else:
-                registered_date = None
-
-            # Витягуємо дату останньої активності
-            last_active_date_selector = await self.page.query_selector('span[class="css-1p85e15"]')
-            if last_active_date_selector:
-                last_active_date = await last_active_date_selector.text_content()
-                last_active_date = last_active_date.strip() if last_active_date else None
-            else:
-                last_active_date = None
-
             seller_data = {
-                "name": name,
-                "rating": rating,
-                "registered_date": registered_date,
-                "last_active_date": last_active_date,
+                'name': await self._extract_text('h4[class="css-1lcz6o7"]'),
+                'rating': await self._extract_text('p[class="css-9pgvpt"]'),
+                'registered_date': await self._extract_text('p[class="css-23d1vy"]'),
+                'last_active_date': await self._extract_text('span[class="css-1p85e15"]'),
+                "location": await self._extract_text('p[class="css-1cju8pu"]'),
+                "region": await self._extract_text('div.css-13l8eec p.css-b5m1rv')
             }
+
             self.data['seller'] = {**self.data.get('seller', {}), **seller_data}
 
             return seller_data
 
         except Exception as e:
-            logger.error(f"Помилка при скрапінгу користувача: {e}")
-            return None
-
-    async def get_address(self) -> dict | None:
-        """
-        Витягує адресу та регіон
-        """
-        try:
-            # Витягуємо адресу
-            location_selector = 'p[class="css-1cju8pu"]'
-            location_element = await self.page.query_selector(location_selector)
-            if location_element:
-                location = await location_element.text_content()
-                location = location.strip() if location else None
-            else:
-                location = None
-
-            # Витягуємо регіон
-            region_selector = 'div.css-13l8eec p.css-b5m1rv'
-            region_element = await self.page.query_selector(region_selector)
-            if region_element:
-                region = await region_element.text_content()
-                region = region.strip() if region else None
-            else:
-                region = None
-
-            address_data = {"location": location, "region": region}
-            self.data['seller'] = {**self.data.get('seller', {}), **address_data}
-
-            return address_data
-
-        except Exception as e:
-            logger.error(f"Помилка при скрапінгу адреси: {e}")
+            logger.error(f"Error scraping seller data: {e}")
             return None
 
     async def get_product(self) -> dict | None:
+        """
+        Витягує дату публікації, назву, ціну, опис, id, кількість переглядів
+        """
         try:
-            # Витягуємо дату публікації
-            date_selector = 'span[class="css-19yf5ek"]'
-            date_element = await self.page.query_selector(date_selector)
-            if date_element:
-                date_published = await date_element.text_content()
-                date_published = date_published.strip() if date_published else None
-            else:
-                date_published = None
+            items = {
+                "date_published": await self._extract_text('span[class="css-19yf5ek"]'),
+                "title": await self._extract_text('h4[class="css-1kc83jo"]'),
+                "price": await self._extract_text('h3[class="css-90xrc0"]'),
+                "description": await self._extract_text('div[class="css-1o924a9"]'),
+                "site_id": await self._extract_text('span[class="css-12hdxwj"]', is_digit=True),
+                "views_count": await self._extract_text('span[data-testid="page-view-counter"]', scroll=True,
+                                                        is_digit=True)
+            }
 
-            # Витягуємо назву товару
-            title_selector = 'h4[class="css-1kc83jo"]'
-            title_element = await self.page.query_selector(title_selector)
-            if title_element:
-                title = await title_element.text_content()
-                title = title.strip() if title else None
-            else:
-                title = None
-
-            # Витягуємо ціну товару
-            price_selector = 'h3[class="css-90xrc0"]'
-            price_element = await self.page.query_selector(price_selector)
-            if price_element:
-                price = await price_element.text_content()
-                price = price.strip() if price else None
-            else:
-                price = None
-
-            # Витягуємо опис товару
-            description_selector = 'div[class="css-1o924a9"]'
-            description_element = await self.page.query_selector(description_selector)
-            if description_element:
-                description = await description_element.text_content()
-                description = description.strip() if description else None
-            else:
-                description = None
-
-            # Витягуємо ID товару
-            site_id_selector = 'span[class="css-12hdxwj"]'
-            site_id_element = await self.page.query_selector(site_id_selector)
-            if site_id_element:
-                site_id_text = await site_id_element.text_content()
-                site_id = re.search(r'\d+', site_id_text).group() if site_id_text else None
-            else:
-                site_id = None
-
-            # Витягуємо кількість переглядів
-            selector = 'span[data-testid="page-view-counter"]'
-            views_count_selector = await scroll_to_element(self.page, selector)
-            if views_count_selector:
-                views_count = await views_count_selector.text_content()
-                views_count = re.search(r'\d+', views_count).group() if views_count else None
-            else:
-                views_count = None
-
-            items = {"date_published": date_published, "title": title, "price": price,
-                    "description": description, "site_id": site_id, "views_count": views_count}
             self.data['product'] = {**self.data.get('product', {}), **items}
 
             return items
@@ -287,9 +183,10 @@ class PlaywrightAsyncRunner:
             return None
 
     async def get_images(self) -> dict | None:
+        """
+        Витягує всі зображення
+        """
         try:
-
-            # Витягуємо всі зображення
             image_elements = await self.page.query_selector_all('div.swiper-wrapper div.swiper-zoom-container img')
             image_urls = []
 
@@ -297,7 +194,6 @@ class PlaywrightAsyncRunner:
                 src = await img.get_attribute('src')
                 if src:
                     image_urls.append(src)
-                await asyncio.sleep(random.random())
             image_urls = ", ".join(image_urls)
 
             image = {"images": image_urls}
@@ -377,6 +273,38 @@ class PlaywrightAsyncRunner:
         except Exception as e:
             logger.error(f"Помилка при скрапінгу телефону: {e}")
 
+    async def scrape_links(self) -> set | None:
+        """
+        Забирає посилання на товари, 5 перших сторінок.
+        """
+        try:
+            links = set()
+            start_time = time.time()
+            for page_number in range(1, 2):
+                url = self.link + f"/uk/list/?page={page_number}"
+                logger.info(f"Завантажую сторінку: {url}")
+
+                await self.page.goto(url)
+                await self.page.wait_for_selector(
+                    "#mainContent > div > div.css-1nvt13t > form > div:nth-child(5) > div > div.css-j0t2x2"
+                )
+                cards = await self.page.query_selector_all('div[data-cy="l-card"] a.css-qo0cxu')
+
+                print(f'{cards=}')
+
+                for card in cards:
+                    href = await card.get_attribute("href")
+                    if href:
+                        links.add(href)
+            logger.info(f"Загальна кількість унікальних посилань: {len(links)}")
+            logger.info(f"scrape_links завершено. Загальний час: {time.time() - start_time:.2f} сек.")
+
+            return links
+
+        except Exception as e:
+            logger.error(f"Помилка при скрапінгу посилань {e}")
+            return None
+
     async def main_get_pages(self, playwright: Playwright):
         """
         Основний метод, для скрапінгу посилань.
@@ -407,8 +335,6 @@ class PlaywrightAsyncRunner:
             await self._login()
             await self.get_seller()
             await asyncio.sleep(random.randint(2, 3))
-            await self.get_address()
-            await asyncio.sleep(random.randint(2, 3))
             await self.get_product()
             await self.get_images()
             await self.get_info()
@@ -421,29 +347,49 @@ class PlaywrightAsyncRunner:
             logger.error(f"Error during operation: {e}")
 
 
-async def playwright_async_run(email, password, link):
-    runner = PlaywrightAsyncRunner(email, password, link)
-    async with async_playwright() as playwright, get_db_context() as db:
+async def fetch_product_data(email, password, product_link, link, db, semaphore, playwright):
+    async with semaphore:
+        runner = None  # Ініціалізація змінної для гарантії закриття браузера
 
+        try:
+            # Створюємо новий екземпляр PlaywrightAsyncRunner
+            runner = PlaywrightAsyncRunner(email, password, link + product_link)
+            link_prod = {"link": runner.link}
+            runner.data['product'] = {**runner.data.get('product', {}), **link_prod}
+
+            # Зібрати всі дані для продукту (передаємо `playwright`)
+            await runner.main_run(playwright)
+
+            # Логування результатів
+            print("********************************************************")
+            print(runner.link)
+            pprint(runner.data)
+            print("********************************************************")
+
+            # Збереження даних у базу даних
+            await save_data_to_db(runner.data, db)
+
+        except Exception as e:
+            # Логування виключень
+            logger.error(f"Помилка під час обробки продукту {product_link}: {e}", exc_info=True)
+        finally:
+            await runner.browser.close()
+            # await runner._close_browser()
+
+
+async def playwright_async_run(email, password, link):
+    async with async_playwright() as playwright, get_db_context() as db:
         # 1. Для збору посилань на продукти
+        runner = PlaywrightAsyncRunner(email, password, link)
         product_links = await runner.main_get_pages(playwright)
 
-        # 2. Ітерація для кожного продукту
+        # 2. Паралельна обробка з обмеженням кількості одночасних запитів
         if product_links:
-            for product_link in list(product_links):
-                runner.link = link + product_link
-                link_prod = {"link": runner.link}
-                runner.data['product'] = {**runner.data.get('product', {}), **link_prod}
+            semaphore = asyncio.Semaphore(1)  # Наприклад, максимум 5 одночасних запитів
+            tasks = [
+                fetch_product_data(email, password, product_link, link, db, semaphore, playwright)
+                for product_link in list(product_links)[:4]
+            ]
 
-                # Зібрати всі дані для продукту
-                await runner.main_run(playwright)
-
-                print("********************************************************")
-                print(runner.link)
-                pprint(runner.data)
-                print("********************************************************")
-
-                # Збереження даних у БД
-                await save_data_to_db(runner.data, db)
-
-
+            # Виконання всіх задач паралельно
+            await asyncio.gather(*tasks)
