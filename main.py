@@ -18,7 +18,7 @@ EMAIL_OLX = config.get("EMAIL_OLX")
 PASSWORD_OLX = config.get("PASSWORD_OLX")
 
 
-async def main():
+async def scheduler_async():
     scheduler = AsyncIOScheduler()
 
     # Запуск після старту
@@ -42,6 +42,11 @@ async def main():
     except (KeyboardInterrupt, SystemExit):
         logger.info("Shutting down scheduler")
         scheduler.shutdown()
+
+
+async def main():
+    logger.info("Start program", extra={'custom_color': True})
+    await scheduler_async()
 
 
 if __name__ == '__main__':

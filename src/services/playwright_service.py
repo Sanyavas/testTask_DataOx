@@ -370,7 +370,7 @@ async def playwright_async_run(email, password, link):
             success_count = [0]
             tasks = [
                 fetch_product_data(email, password, product_link, link, db, semaphore, playwright, success_count)
-                for product_link in list(product_links)[:10]
+                for product_link in list(product_links)
             ]
 
             await asyncio.gather(*tasks)
